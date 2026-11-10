@@ -15,7 +15,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 
-import com.theethancorporation.util.MalformedWikipediaURL;
+import com.theethancorporation.util.MalformedWikipediaURLException;
 
 public class AppUI {
     private JFrame frame = null;
@@ -27,7 +27,9 @@ public class AppUI {
      * @param pages
      */
     public AppUI(final PageController controller) {
+
         final ArrayList<WebPage> pages = controller.getListOfPages();
+       
         frame = new JFrame("Semantics Calculator");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setSize(500, 400);
@@ -113,14 +115,14 @@ public class AppUI {
             }
             if ("".equals(topicOne) || "".equals(topicTwo)) {
                 try {
-                    throw new MalformedWikipediaURL("No end of URL, malformed.");
-                } catch (MalformedWikipediaURL ex) {
+                    throw new MalformedWikipediaURLException("No end of URL, malformed.");
+                } catch (MalformedWikipediaURLException ex) {
                     System.getLogger(AppUI.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
                     return;
                 }
             }
-                resultsJLabel.setText(String.format("Similar topics: %s and %s.", topicOne, topicTwo));
-                resultsJLabel.setToolTipText(String.format("Similar topics: %s and %s.", topicOne, topicTwo));
+                resultsJLabel.setText(String.format("Similar topics: %s and %s.", topicOne.replaceAll("_", " "), topicTwo.replaceAll("_", " ")));
+                resultsJLabel.setToolTipText(String.format("Similar topics: %s and %s.", topicOne.replaceAll("_", " "), topicTwo.replaceAll("_", " ")));
     }   
         );
         frame.setVisible(true);

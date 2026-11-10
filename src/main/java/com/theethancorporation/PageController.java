@@ -1,18 +1,22 @@
 package com.theethancorporation;
 
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Scanner;
 import java.util.stream.Stream;
 
 import org.jsoup.Connection.Response;
+import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
 
 import com.theethancorporation.util.EthansHashSet;
-import com.theethancorporation.util.MalformedWikipediaURL;
+import com.theethancorporation.util.MalformedWikipediaURLException;
 
 /**
  * 
@@ -20,11 +24,16 @@ import com.theethancorporation.util.MalformedWikipediaURL;
  */
 public final class PageController {
     static private Path resourcesFilePath;
-    private final ArrayList<WebPage> listOfPages;
-    private final HashMap<String, Double> inverseDocumentFrequencyHashMap;
-    private final HashMap<WebPage, HashMap<String, Double>> webPageToTFIDF;
-    private final int amountOfURLsToAnalyze;
+    static private boolean CONTROL_PATH_EXISTS = false;
 
+    public static boolean isCONTROL_PATH_EXISTS() {
+        return CONTROL_PATH_EXISTS;
+    }
+
+    private ArrayList<WebPage> listOfPages = null;
+    private final HashMap<String, Double> INVERSE_DOCUMENT_FREQUENCY_HASHMAP;
+    private final HashMap<WebPage, HashMap<String, Double>> WEBPAGE_TO_TFIDF;
+    private int amountOfURLsToAnalyze = 0;
     /**
      * The constructor for the PageController.
      * @param resourcesFilePath A control.txt file that you can fill with wikipedia URLs, which the PageController will subsequently search.
@@ -34,21 +43,33 @@ public final class PageController {
      */
     public PageController(final Path resourcesFilePath, final int amountOfURLsToAnalyze) throws FileNotFoundException, IOException {
         PageController.resourcesFilePath = resourcesFilePath;
-        this.listOfPages = populateWebpagesList();
-        this.inverseDocumentFrequencyHashMap = calculateInverseDocumentFrequency();
-        this.webPageToTFIDF = calculateAllTFIDF();
         this.amountOfURLsToAnalyze = amountOfURLsToAnalyze;
+        try {
+            this.listOfPages = populateWebpagesList();
+        } catch (InterruptedException ex) {
+            System.getLogger(PageController.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
+        }
+        this.INVERSE_DOCUMENT_FREQUENCY_HASHMAP = calculateInverseDocumentFrequency();
+        this.WEBPAGE_TO_TFIDF = calculateAllTFIDF();
+        if (Path.of(resourcesFilePath.toString() + "control.txt").toFile().exists()) {
+            PageController.CONTROL_PATH_EXISTS = true;
+        }
+        serializeWebPages();
     }
 
     /**
      * A populator that takes either the control.txt or a random sample of size amountOfURLsToAnalyze, and populates the listOfPages with WebPage objects.
      * @return An ArrayList of WebPages that represent a specific topic and its associated data.
+     * @throws InterruptedException 
      */
-    private ArrayList<WebPage> populateWebpagesList() {
+    private ArrayList<WebPage> populateWebpagesList() throws IOException, InterruptedException {
         final ArrayList<WebPage> localList = new ArrayList<>();
         EthansHashSet<WebPage> checkSet = new EthansHashSet<>(10, 0.75);
-        if (resourcesFilePath != null) {
-            try (Stream<String> controlFileStream = Files.lines(Path.of(resourcesFilePath.toString(), "control.txt"))) {
+        final Path controlFile = Path.of(resourcesFilePath.toString() + "control.txt");
+
+        // If we have a control file, use that.
+        if (resourcesFilePath != null && CONTROL_PATH_EXISTS) {
+            try (Stream<String> controlFileStream = Files.lines(controlFile)) {
             controlFileStream.forEach((line) -> {
                 try {
                     if (checkSet.contains(new WebPage(line))) {
@@ -57,29 +78,73 @@ public final class PageController {
                         checkSet.add(new WebPage(line));
                         localList.add(new WebPage(line));
                     }
-                } catch (MalformedWikipediaURL ex) {
+                } catch (MalformedWikipediaURLException ex) {
                     System.getLogger(PageController.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
                 }
             });
             } catch (IOException e) {
                 System.out.println("Some I/O problem happened, when attempting to read the control file.");
                 e.printStackTrace();
-            }    
-        } else {
-            for (int webPageIndex = 0; webPageIndex <= amountOfURLsToAnalyze; webPageIndex++) {
+            }
+            // Else, if we need more files to shove into the cache, we add until we get 200.
+            // TODO: We still need to have this dynamically retrieve all 200 files.
+        } 
+
+        final Path PATH_OF_PAGE_DATA = Path.of(resourcesFilePath.toString(), "pageData");
+        
+        for (String pathString : PATH_OF_PAGE_DATA.toFile().list()) {
+            System.out.println(Path.of(PATH_OF_PAGE_DATA.toString(), pathString));
+        
+            try (Scanner newScanner = new Scanner(Path.of(PATH_OF_PAGE_DATA.toString(), pathString))) {
+                localList.add(new WebPage(newScanner.nextLine()));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            
+        }
+
+        if (PATH_OF_PAGE_DATA.toFile().list().length < amountOfURLsToAnalyze) {
+            for (int webPageIndex = resourcesFilePath.toFile().list().length; webPageIndex < amountOfURLsToAnalyze; webPageIndex++) {
                 try {
                     final Response currentResponse = Jsoup.connect("https://en.wikipedia.org/wiki/Special:Random").execute();
                     final String resolvedURL = currentResponse.url().toExternalForm();
                     localList.add(new WebPage(resolvedURL));
-                } catch (IOException e) {
+                    System.out.println("Added " + resolvedURL);
                     // TODO Auto-generated catch block
-                    e.printStackTrace();
-                } catch (MalformedWikipediaURL ex) {
+                } catch (MalformedWikipediaURLException ex) {
                     System.getLogger(PageController.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
+                } catch (HttpStatusException e) {
+                    if (e.getMessage().equals("200")) {
+                        System.out.println("Its a 200 error.");
+                    }
                 }
             }
-        }
+        } 
         return localList;
+    }
+
+    public void serializeWebPages() {
+        for (WebPage webPage : listOfPages) { 
+            if (!webPage.getSerialPath().toFile().exists()) {
+                try {
+                    webPage.getSerialPath().toFile().createNewFile();
+                } catch (IOException e) {
+                    System.out.println("Could not make the file dictated by the serialPath.");
+                    e.printStackTrace();
+                }
+            }
+            // IF the serialPath doesnt exist, then make it exist as 
+            try (FileOutputStream serialFile = new FileOutputStream(webPage.getSerialPath().toFile()); ObjectOutputStream outputStream = new ObjectOutputStream(serialFile)) {
+                outputStream.writeObject(webPage);
+            } catch (FileNotFoundException e) {
+                System.out.println("When serializing the webPage, we could not make or find the file.");
+                e.printStackTrace();
+            } catch (IOException e) {
+                System.out.println("I could not write to the file, even though I found it.");
+                e.printStackTrace();
+            }
+            System.out.println(webPage.getSerialPath().toString());
+        }
     }
 
     /**
@@ -104,8 +169,7 @@ public final class PageController {
         }
         // For each word, check if the current webpage has said word.
         // If it does have that word, then 
-        corpusHashMap.keySet().stream().forEach(
-            (word) -> {
+        corpusHashMap.keySet().stream().forEach((word) -> {
                 corpusDocumentFrequencyHashMap.put(word, Math.log(((listOfPages.size() + 1) / (corpusHashMap.get(word) + 1))));
             }
         );
@@ -113,14 +177,14 @@ public final class PageController {
     }
 
     /**
-     * 
+     * Calculates the cosine similarity (or lack thereof) between two target WebPage objects.
      * @param webPageX
      * @param webPageY
-     * @return
+     * @return The Cosine Similarity between the two.
      */
     public double calculateCosineSimilarity(final WebPage webPageX, final WebPage webPageY) {
-        HashMap<String, Double> vectorA = webPageToTFIDF.get(webPageX);
-        HashMap<String, Double> vectorB = webPageToTFIDF.get(webPageY);
+        HashMap<String, Double> vectorA = WEBPAGE_TO_TFIDF.get(webPageX);
+        HashMap<String, Double> vectorB = WEBPAGE_TO_TFIDF.get(webPageY);
         double dotProduct = 0.0;
         double normA = 0.0;
         double normB = 0.0;
@@ -143,7 +207,7 @@ public final class PageController {
     public HashMap<WebPage, HashMap<String, Double>> calculateAllTFIDF() {
         HashMap<WebPage, HashMap<String, Double>> newHashMap = new HashMap<>();
         for (WebPage currentWebPage : listOfPages) {
-            newHashMap.put(currentWebPage, currentWebPage.calculateTDFIDF(inverseDocumentFrequencyHashMap));
+            newHashMap.put(currentWebPage, currentWebPage.calculateTDFIDF(INVERSE_DOCUMENT_FREQUENCY_HASHMAP));
         }
         return newHashMap;
     }
@@ -161,7 +225,7 @@ public final class PageController {
      * @return
      */
     public HashMap<String, Double> getInverseDocumentFrequencyHashMap() {
-        return inverseDocumentFrequencyHashMap;
+        return INVERSE_DOCUMENT_FREQUENCY_HASHMAP;
     }
 
     public ArrayList<WebPage> getListOfPages() {

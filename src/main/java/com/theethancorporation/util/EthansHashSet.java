@@ -1,8 +1,9 @@
 package com.theethancorporation.util;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 
-public class EthansHashSet<T> // implements Iterable
+public class EthansHashSet<T> implements Serializable // implements Iterable
 {
     /**
      * A custom implementation of a HashSet for my SemanticSimilarity project. 
