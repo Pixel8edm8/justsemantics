@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Scanner;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -24,17 +25,17 @@ import com.theethancorporation.util.MalformedWikipediaURLException;
 import com.theethancorporation.util.PathUtils;
 
 public class WebPage implements Serializable {
+    @SuppressWarnings("unused")
     private static final long SERIAL_VERSION_UID = 5L;
     private final static Path RESOURCES_PATH = PageController.getResourcesFilePath();
     private transient Path pageContentPath;
     private transient Path serialPath;
-    private String pageDocumentText;
     private String webPageURL;
     private String pageTopic;
     private final HashMap<String, Double> termFrequencies;
     private final EthansHashSet<String> tokensInWebpage;
-    private HashMap<String, Double> documentFrequencies;
-
+    private Map<String, Double> documentFrequencies;
+    private Map<String, Double> TDFIDF;
     /**
      * Constructs the tables and takes arguments for WebPage
      * @param webPageURL Takes the raw String URL to point it at the specific wikipedia page.
@@ -76,7 +77,6 @@ public class WebPage implements Serializable {
      */
     private void getWebContent() throws IOException {
         final String documentText = Jsoup.connect(webPageURL).get().body().text().toLowerCase().replaceAll("[^a-z0-9]", " ");
-        pageDocumentText = documentText;
         if (Files.notExists(pageContentPath)) {
             Files.createFile(pageContentPath);
         }
@@ -140,8 +140,8 @@ public class WebPage implements Serializable {
         return wordExistenceSet;
     }
 
-    public HashMap<String, Double> calculateTDFIDF(HashMap<String, Double> inverseDocumentFrequencyTable) {
-        HashMap<String, Double> TDFIDFTable = new HashMap<>();
+    public Map<String, Double> calculateTDFIDF(Map<String, Double> inverseDocumentFrequencyTable) {
+        Map<String, Double> TDFIDFTable = new HashMap<>();
         termFrequencies.keySet().stream().forEach(
             (word) -> {
                 TDFIDFTable.put(word, termFrequencies.get(word) * inverseDocumentFrequencyTable.get(word));
@@ -175,7 +175,7 @@ public class WebPage implements Serializable {
         return webPageURL;
     }
 
-    public HashMap<String, Double> getDocumentFrequencies() {
+    public Map<String, Double> getDocumentFrequencies() {
         return documentFrequencies;
     }
 
@@ -208,5 +208,13 @@ public class WebPage implements Serializable {
 
     public Path getSerialPath() {
         return serialPath;
+    }
+
+    public HashMap<String, Double> getTDFIDF() {
+        return (HashMap<String, Double>) TDFIDF;
+    }
+
+    public void setTDFIDF(Map<String, Double> TDFIDF) {
+        this.TDFIDF = TDFIDF;
     }
 }

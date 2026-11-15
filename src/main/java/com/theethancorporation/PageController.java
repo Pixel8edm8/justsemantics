@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Scanner;
 import java.util.stream.Stream;
 
@@ -102,29 +103,37 @@ public final class PageController {
             }
             
         }
-
-        if (PATH_OF_PAGE_DATA.toFile().list().length < amountOfURLsToAnalyze) {
-            for (int webPageIndex = resourcesFilePath.toFile().list().length; webPageIndex < amountOfURLsToAnalyze; webPageIndex++) {
-                try {
-                    final Response currentResponse = Jsoup.connect("https://en.wikipedia.org/wiki/Special:Random").execute();
-                    final String resolvedURL = currentResponse.url().toExternalForm();
-                    localList.add(new WebPage(resolvedURL));
-                    System.out.println("Added " + resolvedURL);
-                    // TODO Auto-generated catch block
-                } catch (MalformedWikipediaURLException ex) {
-                    System.getLogger(PageController.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
-                } catch (HttpStatusException e) {
-                    if (e.getMessage().equals("200")) {
-                        System.out.println("Its a 200 error.");
-                    }
+        System.out.println(Path.of(resourcesFilePath.toAbsolutePath().toString() + "/pageData").toAbsolutePath().toString());
+        int webPageIndex = Path.of(resourcesFilePath.toAbsolutePath().toString() + "/pageData").toFile().list().length;
+        while (webPageIndex < amountOfURLsToAnalyze) {
+            try {
+                final Response currentResponse = Jsoup.connect("https://en.wikipedia.org/wiki/Special:Random")
+                .userAgent("ACoolWebCrawler/1.0 (https://cs.oswego.edu; student-project")
+                .timeout(10000)
+                .execute();
+                final String resolvedURL = currentResponse.url().toExternalForm();
+                localList.add(new WebPage(resolvedURL));
+                System.out.println("Added " + resolvedURL);
+                Thread.sleep(1000);
+                // TODO Auto-generated catch block
+            } catch (MalformedWikipediaURLException ex) {
+                System.getLogger(PageController.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
+            } catch (HttpStatusException e) {
+                if (e.getStatusCode() == 429) {
+                    System.out.println("I've sent too many requests! I'm going to wait for five seconds.");
+                    Thread.sleep(5000);
                 }
+            } catch (IOException e) {
+                System.out.println("Probably an HTTP go away. Waiting for five seconds.");
+                Thread.sleep(5000);
             }
         } 
         return localList;
     }
 
     public void serializeWebPages() {
-        for (WebPage webPage : listOfPages) { 
+        for (WebPage webPage : listOfPages) {
+            // The control path counterpart is an attribute, but I don't care. Whoops!
             if (!webPage.getSerialPath().toFile().exists()) {
                 try {
                     webPage.getSerialPath().toFile().createNewFile();
@@ -133,7 +142,6 @@ public final class PageController {
                     e.printStackTrace();
                 }
             }
-            // IF the serialPath doesnt exist, then make it exist as 
             try (FileOutputStream serialFile = new FileOutputStream(webPage.getSerialPath().toFile()); ObjectOutputStream outputStream = new ObjectOutputStream(serialFile)) {
                 outputStream.writeObject(webPage);
             } catch (FileNotFoundException e) {
@@ -143,7 +151,6 @@ public final class PageController {
                 System.out.println("I could not write to the file, even though I found it.");
                 e.printStackTrace();
             }
-            System.out.println(webPage.getSerialPath().toString());
         }
     }
 
@@ -152,8 +159,8 @@ public final class PageController {
      * @return
      */
     private HashMap<String, Double> calculateInverseDocumentFrequency() {
-        HashMap<String, Integer> corpusHashMap = new HashMap<>();
-        HashMap<String, Double> corpusDocumentFrequencyHashMap = new HashMap<>();
+        Map<String, Integer> corpusHashMap = new HashMap<>();
+        Map<String, Double> corpusDocumentFrequencyHashMap = new HashMap<>();
         // For each webpage object, iterate over the Keys.
         // How many times does the corpus mention the word?
         for (WebPage currentWebPage : listOfPages) {
@@ -173,7 +180,7 @@ public final class PageController {
                 corpusDocumentFrequencyHashMap.put(word, Math.log(((listOfPages.size() + 1) / (corpusHashMap.get(word) + 1))));
             }
         );
-        return corpusDocumentFrequencyHashMap;
+        return (HashMap<String, Double>) corpusDocumentFrequencyHashMap;
     }
 
     /**
@@ -198,6 +205,9 @@ public final class PageController {
         for (String currentWord : vectorB.keySet()) {
             normB += Math.pow(vectorB.get(currentWord), 2);
         }
+        if (normA == 0.0 || normB == 0.0) {
+            return 0.0;
+        }
         return dotProduct / ((Math.sqrt(normA) * (Math.sqrt(normB))));
     }
 
@@ -206,8 +216,10 @@ public final class PageController {
      */
     public HashMap<WebPage, HashMap<String, Double>> calculateAllTFIDF() {
         HashMap<WebPage, HashMap<String, Double>> newHashMap = new HashMap<>();
-        for (WebPage currentWebPage : listOfPages) {
-            newHashMap.put(currentWebPage, currentWebPage.calculateTDFIDF(INVERSE_DOCUMENT_FREQUENCY_HASHMAP));
+        for (WebPage currentWebPage : listOfPages) { 
+            Map<String, Double> currentWebPageMap = currentWebPage.calculateTDFIDF(INVERSE_DOCUMENT_FREQUENCY_HASHMAP);
+            newHashMap.put(currentWebPage, (HashMap<String, Double>) currentWebPage.calculateTDFIDF(INVERSE_DOCUMENT_FREQUENCY_HASHMAP));
+            currentWebPage.setTDFIDF(currentWebPageMap);
         }
         return newHashMap;
     }
@@ -220,16 +232,12 @@ public final class PageController {
         return resourcesFilePath;
     }
 
-    /**
-     * 
-     * @return
-     */
-    public HashMap<String, Double> getInverseDocumentFrequencyHashMap() {
-        return INVERSE_DOCUMENT_FREQUENCY_HASHMAP;
-    }
-
     public ArrayList<WebPage> getListOfPages() {
         return listOfPages;
+    }
+
+    public HashMap<WebPage, HashMap<String, Double>> getWEBPAGE_TO_TFIDF() {
+        return WEBPAGE_TO_TFIDF;
     }
 
 }
